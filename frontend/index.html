@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Olive Tree</title>
+<style>
+  :root {
+    --bg: #0f1410;
+    --bg2: #161d17;
+    --accent: #9caf88;
+    --accent-dim: #5c6b52;
+    --text: #e7ece3;
+    --text-dim: #8a9482;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: radial-gradient(circle at 50% 40%, var(--bg2), var(--bg));
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .wrap {
+    display: flex; flex-direction: column; align-items: center; gap: 2.2rem;
+    padding: 2rem;
+    text-align: center;
+  }
+  h1 {
+    font-weight: 300; font-size: 1.3rem; letter-spacing: 0.08em;
+    color: var(--text-dim); margin: 0;
+    text-transform: uppercase;
+  }
+  .pulse-stage {
+    position: relative;
+    width: 220px; height: 220px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ring {
+    position: absolute; border-radius: 50%;
+    border: 1px solid var(--accent-dim);
+    opacity: 0.5;
+  }
+  .ring.r1 { width: 100%; height: 100%; }
+  .ring.r2 { width: 78%; height: 78%; }
+  #playBtn {
+    position: relative;
+    width: 130px; height: 130px; border-radius: 50%;
+    background: var(--accent-dim);
+    border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.4s ease, transform 0.4s ease, box-shadow 0.6s ease;
+    box-shadow: 0 0 0 0 rgba(156, 175, 136, 0.4);
+  }
+  #playBtn:hover { background: var(--accent); }
+  #playBtn.playing {
+    animation: breathe 4s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(156, 175, 136, 0.35); }
+    50% { box-shadow: 0 0 0 22px rgba(156, 175, 136, 0); }
+  }
+  #playBtn svg { width: 42px; height: 42px; fill: var(--bg); }
+  #playBtn.playing svg.icon-play { display: none; }
+  #playBtn:not(.playing) svg.icon-pause { display: none; }
+
+  .status {
+    font-size: 0.82rem; color: var(--text-dim); letter-spacing: 0.04em;
+    min-height: 1.2em;
+  }
+  .volume-row {
+    display: flex; align-items: center; gap: 0.6rem;
+    color: var(--text-dim);
+  }
+  input[type=range] {
+    width: 140px; accent-color: var(--accent);
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Olive Tree</h1>
+    <div class="pulse-stage">
+      <div class="ring r1" id="ring1"></div>
+      <div class="ring r2" id="ring2"></div>
+      <button id="playBtn" aria-label="Play/Pause">
+        <svg class="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        <svg class="icon-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+      </button>
+    </div>
+    <div class="volume-row">
+      <span>&#128266;</span>
+      <input type="range" id="volume" min="0" max="1" step="0.01" value="0.8">
+    </div>
+    <div class="status" id="status">bereit</div>
+  </div>
+
+  <audio id="audio" preload="none"></audio>
+
+<script>
+  // Relative URL: the reverse proxy routes /stream.mp3 on this same domain
+  // to the backend's Icecast server. This keeps everything on one origin/
+  // protocol, avoiding mixed-content blocks and bypassed proxies.
+  const STREAM_URL = "/stream.mp3";
+  const STATUS_URL = "status.json";
+
+  const audio = document.getElementById("audio");
+  const btn = document.getElementById("playBtn");
+  const statusEl = document.getElementById("status");
+  const volume = document.getElementById("volume");
+  const ring1 = document.getElementById("ring1");
+  const ring2 = document.getElementById("ring2");
+
+  audio.volume = parseFloat(volume.value);
+  volume.addEventListener("input", () => { audio.volume = parseFloat(volume.value); });
+
+  let playing = false;
+
+  function setPlaying(state) {
+    playing = state;
+    btn.classList.toggle("playing", state);
+    statusEl.textContent = state ? "verbunden – live" : "pausiert";
+  }
+
+  btn.addEventListener("click", () => {
+    if (!playing) {
+      // fresh connection every time -> always rejoins the live stream,
+      // never resumes a stale buffered position
+      audio.src = STREAM_URL + "?_=" + Date.now();
+      audio.play().then(() => setPlaying(true)).catch(() => {
+        statusEl.textContent = "Verbindung fehlgeschlagen, bitte erneut versuchen";
+      });
+    } else {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+      setPlaying(false);
+    }
+  });
+
+  audio.addEventListener("waiting", () => { statusEl.textContent = "verbinde..."; });
+  audio.addEventListener("playing", () => { statusEl.textContent = "verbunden – live"; });
+  audio.addEventListener("error", () => {
+    if (playing) statusEl.textContent = "Verbindung unterbrochen...";
+  });
+
+  // gently pulse the rings based on the tree's current activity level
+  async function pollActivity() {
+    try {
+      const res = await fetch(STATUS_URL + "?_=" + Date.now());
+      if (!res.ok) return;
+      const data = await res.json();
+      const a = Math.max(0, Math.min(1, data.activity ?? 0));
+      const scale1 = 1 + a * 0.15;
+      const scale2 = 1 + a * 0.28;
+      ring1.style.transform = `scale(${scale1})`;
+      ring2.style.transform = `scale(${scale2})`;
+      ring1.style.transition = "transform 8s ease-in-out";
+      ring2.style.transition = "transform 8s ease-in-out";
+    } catch (e) { /* status not reachable yet, ignore */ }
+  }
+  pollActivity();
+  setInterval(pollActivity, 20000);
+</script>
+</body>
+</html>
