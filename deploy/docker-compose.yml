@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  backend:
+    build: ./backend
+    container_name: olivetree-backend
+    restart: unless-stopped
+    environment:
+      - DENDRO_API_KEY=${DENDRO_API_KEY}
+      - DENDRO_LOGGER=${DENDRO_LOGGER}
+      - ICECAST_SOURCE_PASSWORD=${ICECAST_SOURCE_PASSWORD}
+      - ICECAST_ADMIN_PASSWORD=${ICECAST_ADMIN_PASSWORD}
+      - ICECAST_RELAY_PASSWORD=${ICECAST_RELAY_PASSWORD}
+    volumes:
+      - olivetree_data:/data
+    ports:
+      - "3004:8000"
+
+  frontend:
+    build: ./frontend
+    container_name: olivetree-frontend
+    restart: unless-stopped
+    volumes:
+      - olivetree_data:/data:ro
+    ports:
+      - "3003:80"
+    depends_on:
+      - backend
+
+volumes:
+  olivetree_data:
